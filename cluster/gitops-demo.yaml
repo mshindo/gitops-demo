@@ -1,0 +1,208 @@
+apiVersion: cluster.x-k8s.io/v1alpha3
+kind: Cluster
+metadata:
+  name: gitops-demo
+  namespace: default
+spec:
+  clusterNetwork:
+    pods:
+      cidrBlocks:
+      - 192.168.0.0/16
+  controlPlaneRef:
+    apiVersion: controlplane.cluster.x-k8s.io/v1alpha3
+    kind: KubeadmControlPlane
+    name: gitops-demo
+  infrastructureRef:
+    apiVersion: infrastructure.cluster.x-k8s.io/v1alpha3
+    kind: VSphereCluster
+    name: gitops-demo
+---
+apiVersion: infrastructure.cluster.x-k8s.io/v1alpha3
+kind: HAProxyLoadBalancer
+metadata:
+  labels:
+    cluster.x-k8s.io/cluster-name: gitops-demo
+  name: gitops-demo
+  namespace: default
+spec:
+  user:
+    authorizedKeys:
+    - ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQCeBCiXXqcrZNPedMUiH9ZDUiznUqtIRi1h+sIeIuKpfmgm4mf52xzlYoecivebPzUCO+FYYlKoNwj8Tvrh1O1nphfN/74ICplOGAepr1SkVtrIzkz36BKCQJRbAoqmTlJ1bufmNNBVl6bZYN95joOA78D5baSqMu+CQN/l77XTnd80euGFED3YvLHz57oe/CVxUJwv1Zu/S7SdHLVD3MmcxlnTSzkKif/bAazdx0k9MPvJA500w8GYtZRpdGgHq4Bm/OI4otpVfHYb8X9fhhi5oKupIF4uo1bQJEOjXf9oWecuuV747NDzZL1W8Sr937uZM9CpPeX1cW45un45861X motonori@shin.do
+    name: capv
+  virtualMachineConfiguration:
+    cloneMode: linkedClone
+    datacenter: Datacenter
+    datastore: vmshare
+    diskGiB: 25
+    folder: capv-vms
+    memoryMiB: 8192
+    network:
+      devices:
+      - dhcp4: true
+        networkName: Home
+    numCPUs: 2
+    resourcePool: '*/Resources/CAPV'
+    server: 10.156.39.1
+    template: photon-3-haproxy-v1.2.4
+---
+apiVersion: infrastructure.cluster.x-k8s.io/v1alpha3
+kind: VSphereCluster
+metadata:
+  name: gitops-demo
+  namespace: default
+spec:
+  cloudProviderConfiguration:
+    global:
+      insecure: true
+      secretName: cloud-provider-vsphere-credentials
+      secretNamespace: kube-system
+    network:
+      name: Home
+    providerConfig:
+      cloud:
+        controllerImage: gcr.io/cloud-provider-vsphere/cpi/release/manager:v1.0.0
+      storage:
+        attacherImage: quay.io/k8scsi/csi-attacher:v2.0.0
+        controllerImage: gcr.io/cloud-provider-vsphere/csi/release/driver:v2.0.0
+        livenessProbeImage: quay.io/k8scsi/livenessprobe:v1.1.0
+        metadataSyncerImage: gcr.io/cloud-provider-vsphere/csi/release/syncer:v2.0.0
+        nodeDriverImage: gcr.io/cloud-provider-vsphere/csi/release/driver:v2.0.0
+        provisionerImage: quay.io/k8scsi/csi-provisioner:v1.4.0
+        registrarImage: quay.io/k8scsi/csi-node-driver-registrar:v1.2.0
+    virtualCenter:
+      10.156.39.1:
+        datacenters: Datacenter
+    workspace:
+      datacenter: Datacenter
+      datastore: vmshare
+      folder: capv-vms
+      resourcePool: '*/Resources/CAPV'
+      server: 10.156.39.1
+  loadBalancerRef:
+    apiVersion: infrastructure.cluster.x-k8s.io/v1alpha3
+    kind: HAProxyLoadBalancer
+    name: gitops-demo
+  server: 10.156.39.1
+---
+apiVersion: infrastructure.cluster.x-k8s.io/v1alpha3
+kind: VSphereMachineTemplate
+metadata:
+  name: gitops-demo
+  namespace: default
+spec:
+  template:
+    spec:
+      cloneMode: linkedClone
+      datacenter: Datacenter
+      datastore: vmshare
+      diskGiB: 25
+      folder: capv-vms
+      memoryMiB: 8192
+      network:
+        devices:
+        - dhcp4: true
+          networkName: Home
+      numCPUs: 2
+      resourcePool: '*/Resources/CAPV'
+      server: 10.156.39.1
+      template: ubuntu-1804-kube-v1.18.2
+---
+apiVersion: controlplane.cluster.x-k8s.io/v1alpha3
+kind: KubeadmControlPlane
+metadata:
+  name: gitops-demo
+  namespace: default
+spec:
+  infrastructureTemplate:
+    apiVersion: infrastructure.cluster.x-k8s.io/v1alpha3
+    kind: VSphereMachineTemplate
+    name: gitops-demo
+  kubeadmConfigSpec:
+    clusterConfiguration:
+      apiServer:
+        extraArgs:
+          cloud-provider: external
+      controllerManager:
+        extraArgs:
+          cloud-provider: external
+    initConfiguration:
+      nodeRegistration:
+        criSocket: /var/run/containerd/containerd.sock
+        kubeletExtraArgs:
+          cloud-provider: external
+        name: '{{ ds.meta_data.hostname }}'
+    joinConfiguration:
+      nodeRegistration:
+        criSocket: /var/run/containerd/containerd.sock
+        kubeletExtraArgs:
+          cloud-provider: external
+        name: '{{ ds.meta_data.hostname }}'
+    preKubeadmCommands:
+    - hostname "{{ ds.meta_data.hostname }}"
+    - echo "::1         ipv6-localhost ipv6-loopback" >/etc/hosts
+    - echo "127.0.0.1   localhost" >>/etc/hosts
+    - echo "127.0.0.1   {{ ds.meta_data.hostname }}" >>/etc/hosts
+    - echo "{{ ds.meta_data.hostname }}" >/etc/hostname
+    useExperimentalRetryJoin: true
+    users:
+    - name: capv
+      sshAuthorizedKeys:
+      - ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQCeBCiXXqcrZNPedMUiH9ZDUiznUqtIRi1h+sIeIuKpfmgm4mf52xzlYoecivebPzUCO+FYYlKoNwj8Tvrh1O1nphfN/74ICplOGAepr1SkVtrIzkz36BKCQJRbAoqmTlJ1bufmNNBVl6bZYN95joOA78D5baSqMu+CQN/l77XTnd80euGFED3YvLHz57oe/CVxUJwv1Zu/S7SdHLVD3MmcxlnTSzkKif/bAazdx0k9MPvJA500w8GYtZRpdGgHq4Bm/OI4otpVfHYb8X9fhhi5oKupIF4uo1bQJEOjXf9oWecuuV747NDzZL1W8Sr937uZM9CpPeX1cW45un45861X motonori@shin.do
+      sudo: ALL=(ALL) NOPASSWD:ALL
+  replicas: 1
+  version: v1.18.2
+---
+apiVersion: bootstrap.cluster.x-k8s.io/v1alpha3
+kind: KubeadmConfigTemplate
+metadata:
+  name: gitops-demo-md-0
+  namespace: default
+spec:
+  template:
+    spec:
+      joinConfiguration:
+        nodeRegistration:
+          criSocket: /var/run/containerd/containerd.sock
+          kubeletExtraArgs:
+            cloud-provider: external
+          name: '{{ ds.meta_data.hostname }}'
+      preKubeadmCommands:
+      - hostname "{{ ds.meta_data.hostname }}"
+      - echo "::1         ipv6-localhost ipv6-loopback" >/etc/hosts
+      - echo "127.0.0.1   localhost" >>/etc/hosts
+      - echo "127.0.0.1   {{ ds.meta_data.hostname }}" >>/etc/hosts
+      - echo "{{ ds.meta_data.hostname }}" >/etc/hostname
+      users:
+      - name: capv
+        sshAuthorizedKeys:
+        - ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQCeBCiXXqcrZNPedMUiH9ZDUiznUqtIRi1h+sIeIuKpfmgm4mf52xzlYoecivebPzUCO+FYYlKoNwj8Tvrh1O1nphfN/74ICplOGAepr1SkVtrIzkz36BKCQJRbAoqmTlJ1bufmNNBVl6bZYN95joOA78D5baSqMu+CQN/l77XTnd80euGFED3YvLHz57oe/CVxUJwv1Zu/S7SdHLVD3MmcxlnTSzkKif/bAazdx0k9MPvJA500w8GYtZRpdGgHq4Bm/OI4otpVfHYb8X9fhhi5oKupIF4uo1bQJEOjXf9oWecuuV747NDzZL1W8Sr937uZM9CpPeX1cW45un45861X motonori@shin.do
+        sudo: ALL=(ALL) NOPASSWD:ALL
+---
+apiVersion: cluster.x-k8s.io/v1alpha3
+kind: MachineDeployment
+metadata:
+  labels:
+    cluster.x-k8s.io/cluster-name: gitops-demo
+  name: gitops-demo-md-0
+  namespace: default
+spec:
+  clusterName: gitops-demo
+  replicas: 2
+  selector:
+    matchLabels: {}
+  template:
+    metadata:
+      labels:
+        cluster.x-k8s.io/cluster-name: gitops-demo
+    spec:
+      bootstrap:
+        configRef:
+          apiVersion: bootstrap.cluster.x-k8s.io/v1alpha3
+          kind: KubeadmConfigTemplate
+          name: gitops-demo-md-0
+      clusterName: gitops-demo
+      infrastructureRef:
+        apiVersion: infrastructure.cluster.x-k8s.io/v1alpha3
+        kind: VSphereMachineTemplate
+        name: gitops-demo
+      version: v1.18.2
