@@ -187,7 +187,7 @@ metadata:
   namespace: default
 spec:
   clusterName: gitops-demo
-  replicas: 2
+  replicas: 3
   selector:
     matchLabels: {}
   template:
